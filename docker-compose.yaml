@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  app:
+    container_name: app
+    build: ./
+    stop_signal: SIGINT
+    stop_grace_period: 5s
+    ports:
+      - "8080:8080"
+    env_file:
+      - secrets.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - app_network
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile-migrator
+    container_name: migrate
+    command: [ "up" ]
+    env_file:
+      - secrets.env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    networks:
+      - app_network
+
+  redis:
+    image: redis:latest
+    container_name: redis_container
+    env_file:
+      - secrets.env
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure
+    networks:
+      - app_network
+
+
+  db:
+    image: postgres:latest
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]
+    ports:
+      - 5432:5432
+    container_name: postgres
+    env_file:
+      - secrets.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
